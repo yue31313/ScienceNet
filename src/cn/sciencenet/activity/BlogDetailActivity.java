@@ -1,0 +1,432 @@
+package cn.sciencenet.activity;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.net.URLConnection;
+import java.util.ArrayList;
+
+import android.app.Activity;
+import android.content.Intent;
+import android.os.Bundle;
+import android.os.Handler;
+import android.util.Log;
+import android.view.Menu;
+import android.view.MenuInflater;
+import android.view.MenuItem;
+import android.view.View;
+import android.view.View.OnClickListener;
+import android.view.Window;
+import android.view.WindowManager;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.widget.Button;
+import android.widget.ImageView;
+import android.widget.TextView;
+import android.widget.Toast;
+import android.widget.ViewSwitcher;
+import cn.sciencenet.R;
+import cn.sciencenet.datastorage.CollectionItem;
+import cn.sciencenet.datastorage.DBManager;
+import cn.sciencenet.httpclient.XmlBlogDetailHandler;
+import cn.sciencenet.util.AppUtil;
+import cn.sciencenet.util.DataUrlKeys;
+import cn.sciencenet.util.DateUtil;
+import cn.sciencenet.util.EncryptBySHA1;
+import cn.sciencenet.util.HttpUtil;
+import cn.sciencenet.util.NetWorkState;
+
+public class BlogDetailActivity extends Activity {
+
+	//private static final String TAG = "BlogDetailActivity";
+
+	// 以下的数据是从博客列表Activity传过来的bundle获取到的
+	private int currentListIndex;
+	private String currentBlogID; // 当前的博客Id
+	private String currentBlogCopyright; // 当前博客的作者
+	private String currentBlogDescription; // 当前博客的描述
+	private String currentBlogLink;//当前博客的链接
+	private ArrayList<String> blogIdList;
+	private ArrayList<String> blogCopyrightList;
+	private ArrayList<String> blogDescriptionList;
+	private ArrayList<String> blogLinkList;
+
+	// 以下数据的获取是解析某一篇具体博客的XML获取到的
+	private String title = "";
+	private String content = ""; // 博客的详细内容，相当于新闻的description
+	private String id = ""; // 从xml里面解析出来的该篇博客的ID
+	private String noreply = ""; // "0"为允许"1"为不允许,2为允许注册用户评论，3为博客用户可以评论
+	private String dateline = "";
+
+//	private static int currentFontSizeFlag = 1; // 字体大小标志位，0代表normal，1代表larger，2代表largest
+
+	private XmlBlogDetailHandler xmlHandler = new XmlBlogDetailHandler();
+
+	final String mimeType = "text/html";
+	final String encoding = "utf-8";
+
+	private Button goBackButton; // 返回按钮
+	private ImageView previous; // 显示上一篇文章的按钮
+	private ImageView next; // 显示下一篇文章的按钮
+	private WebView contentWebView;
+	private ViewSwitcher viewSwitcher;
+
+	private Thread getBlogDetailThread;
+
+	@Override
+	public void onCreate(Bundle savedInstanceState) {
+		super.onCreate(savedInstanceState);
+		// 防止休眠
+		getWindow().setFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+				WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+		// 去掉顶部灰条
+		requestWindowFeature(Window.FEATURE_NO_TITLE);
+		setContentView(R.layout.content);
+		((TextView) findViewById(R.id.content_title)).setText("博客");
+
+		initViews();
+		initData();
+	}
+
+	/**
+	 * 初始化View
+	 */
+	private void initViews() {
+		viewSwitcher = (ViewSwitcher) findViewById(R.id.viewswitcher_content);
+
+		contentWebView = new WebView(this);
+		contentWebView.addJavascriptInterface(this, "javatojs");
+		contentWebView.setScrollBarStyle(0);
+		WebSettings webSetting = contentWebView.getSettings();
+		webSetting.setDefaultTextEncodingName("utf-8");
+		webSetting.setJavaScriptEnabled(true);
+//		webSetting.setPluginsEnabled(true);
+		webSetting.setNeedInitialFocus(false);
+		webSetting.setSupportZoom(true);
+//		webSetting.setLayoutAlgorithm(LayoutAlgorithm.SINGLE_COLUMN);
+//		webSetting.setTextSize(WebSettings.TextSize.LARGER);
+		AppUtil.setFont(contentWebView);
+		webSetting.setCacheMode(WebSettings.LOAD_DEFAULT
+				| WebSettings.LOAD_CACHE_ELSE_NETWORK);
+
+		// 返回按钮
+		goBackButton = (Button) findViewById(R.id.go_back);
+		goBackButton.setOnClickListener(new OnClickListener() {
+			public void onClick(View v) {
+				BlogDetailActivity.this.finish();
+			}
+		});
+
+		// 显示上一篇新闻
+		previous = (ImageView) findViewById(R.id.previous);
+		previous.setOnClickListener(new OnClickListener() {
+			@Override
+			public void onClick(View v) {
+				if (viewSwitcher.getDisplayedChild() == 1) { // 当前的博客还没刷出来
+					Toast.makeText(BlogDetailActivity.this, "请等待当前博客刷新完毕",
+							Toast.LENGTH_SHORT).show();
+					return;
+				}
+				if (--currentListIndex < 0) {
+					Toast.makeText(BlogDetailActivity.this, "已经是第一篇博客",
+							Toast.LENGTH_SHORT).show();
+					currentListIndex++;
+					return;
+				}
+				currentBlogID = blogIdList.get(currentListIndex);
+				currentBlogCopyright = blogCopyrightList.get(currentListIndex);
+				currentBlogDescription = blogDescriptionList
+						.get(currentListIndex);
+				currentBlogLink = blogLinkList.get(currentListIndex);
+				getBlogDetailThread = getThreadInstace();
+				getBlogDetailThread.start();
+			}
+		});
+
+		// 显示下一篇新闻
+		next = (ImageView) findViewById(R.id.next);
+		next.setOnClickListener(new OnClickListener() {
+			@Override
+			public void onClick(View v) {
+				if (viewSwitcher.getDisplayedChild() == 1) { // 当前的博客还没刷出来
+					Toast.makeText(BlogDetailActivity.this, "请等待当前博客刷新完毕",
+							Toast.LENGTH_SHORT).show();
+					return;
+				}
+				if (++currentListIndex > blogIdList.size() - 1) {
+					Toast.makeText(BlogDetailActivity.this, "已经是最后一篇博客",
+							Toast.LENGTH_SHORT).show();
+					currentListIndex--;
+					return;
+				}
+				currentBlogID = blogIdList.get(currentListIndex);
+				currentBlogCopyright = blogCopyrightList.get(currentListIndex);
+				currentBlogDescription = blogDescriptionList
+						.get(currentListIndex);
+				currentBlogLink = blogLinkList.get(currentListIndex);
+				getBlogDetailThread = getThreadInstace();
+				getBlogDetailThread.start();
+			}
+		});
+
+		viewSwitcher.addView(contentWebView);
+		viewSwitcher.addView(getLayoutInflater().inflate(
+				R.layout.layout_progress_page, null));
+		viewSwitcher.showNext();
+	}
+
+	/**
+	 * 初始化数据
+	 */
+	private void initData() {
+		// 新闻列表传过来的数据
+		this.currentBlogID = getIntent().getStringExtra("current_blog_id");
+		this.blogIdList = getIntent().getStringArrayListExtra("blog_id_list");
+		this.blogCopyrightList = getIntent().getStringArrayListExtra(
+				"blog_copyright_list");
+		this.blogDescriptionList = getIntent().getStringArrayListExtra(
+				"blog_description_list");
+		this.blogLinkList = getIntent().getStringArrayListExtra("blog_link_list");
+		
+		this.currentListIndex = getIntent()
+				.getIntExtra("current_blog_index", 0);
+		this.currentBlogCopyright = getIntent().getStringExtra(
+				"current_blog_copyright");
+		this.currentBlogDescription = getIntent().getStringExtra(
+				"current_blog_description");
+		this.currentBlogLink = getIntent().getStringExtra("current_blog_link");
+		// for (String str : blogCopyrightList) {
+		// Log.e("blogCopyrightList", str);
+		// }
+		// for (String str : blogIdList) {
+		// Log.e("blogIdList", str);
+		// }
+		// 启动新线程解析XML获取数据
+		getBlogDetailThread = getThreadInstace();
+		getBlogDetailThread.start();
+	}
+
+	/**
+	 * 为请求详细内容的线程新建一个实例
+	 */
+	private Thread getThreadInstace() {
+		return new Thread() {
+			@Override
+			public void run() {
+				// http进行xml解析获取某篇新闻的数据
+				handler.sendEmptyMessage(-1); // 显示转圈的进度条
+				getBlogDetails(currentBlogID);
+				handler.sendEmptyMessage(1); // 显示webView
+			}
+		};
+	}
+
+	/**
+	 * 获取博客的具体内容，此方法在子线程中被调用
+	 */
+	private void getBlogDetails(String blogId) {
+		if (!NetWorkState.isNetworkAvailable(this)) { // 判断网络连接情况
+			handler.sendEmptyMessage(0);
+			return;
+		}
+		try {
+			String pass = EncryptBySHA1.Encrypt(DateUtil.getCurrentDate());
+			URL url = new URL(
+					DataUrlKeys.BLOG_DETAIL_URL.replace("$id", blogId) + pass);
+			Log.i("BlogContentUrl",
+					DataUrlKeys.BLOG_DETAIL_URL.replace("$id", blogId) + pass);
+			URLConnection con = url.openConnection();
+			con.connect();
+			InputStream input = con.getInputStream();
+			Bundle bundle = xmlHandler.getBlogDetails(input);
+
+			title = bundle.getString("blog_title");
+			content = bundle.getString("blog_content");
+			id = bundle.getString("blog_id");
+			noreply = bundle.getString("blog_noreply");
+			dateline = bundle.getString("blog_dateline");
+
+		} catch (MalformedURLException e) {
+			e.printStackTrace();
+		} catch (IOException e) {
+			e.printStackTrace();
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+
+	/**
+	 * 将信息显示到WebView上
+	 */
+	private void setWebView() {
+		String htmlContent = "";
+		try {
+			InputStream in = getAssets().open("context_blog.html");
+			byte[] tmp = HttpUtil.readInputStream(in);
+			htmlContent = new String(tmp);
+			checkParams(); // 最后校验属性，防止异常标签引发的异常
+			AppUtil.setWebViewLayout(contentWebView, content); // 如果具体内容包含表格，则改变webview的布局逻辑
+			contentWebView.loadDataWithBaseURL(
+					"http://news.sciencenet.cn",
+					htmlContent.replace("@title", title)
+							.replace("@copyright", currentBlogCopyright)
+							.replace("@dateLine", dateline)
+							.replace("@content", content), mimeType, encoding,
+					null);
+		} catch (Exception e) {
+			handler.sendEmptyMessage(2); // 出现异常
+			e.printStackTrace();
+		}
+	}
+
+	/**
+	 * 做最后的校验，校验要被显示到UI上的某篇新闻具体内容的各属性是否为空
+	 */
+	private void checkParams() {
+		this.title = (title == null || title.equals("")) ? "未知" : title;
+		this.currentBlogCopyright = (currentBlogCopyright == null || currentBlogCopyright
+				.equals("")) ? "未知" : currentBlogCopyright;
+		this.dateline = (dateline == null || dateline.equals("")) ? "未知"
+				: dateline;
+		this.content = (content == null || content.equals("")) ? "未知" : content;
+	}
+
+	/**
+	 * UI线程的handler
+	 */
+	private Handler handler = new Handler() {
+		@Override
+		public void handleMessage(android.os.Message msg) {
+			if (msg.what == 1) {
+				setWebView();
+				viewSwitcher.setDisplayedChild(0); // 显示设置好的webview
+			} else if (msg.what == -1) {
+				viewSwitcher.setDisplayedChild(1); // 显示转圈的进度条
+			} else if (msg.what == 0) {
+				Toast.makeText(BlogDetailActivity.this, "网络连接不可用，请检查你的网络连接",
+						Toast.LENGTH_LONG).show();
+			} else if (msg.what == 2) {
+				Toast.makeText(BlogDetailActivity.this, "抱歉，出现未知异常",
+						Toast.LENGTH_LONG).show();
+			}
+		}
+	};
+
+	/**
+	 * 菜单
+	 */
+	@Override
+	public boolean onCreateOptionsMenu(Menu menu) {
+		MenuInflater inflater = getMenuInflater();
+		inflater.inflate(R.menu.news_detail_menu, menu);
+		return super.onCreateOptionsMenu(menu);
+	}
+
+	@Override
+	public boolean onOptionsItemSelected(MenuItem mi) {
+		switch (mi.getItemId()) {
+		case R.id.menu_news_pinglun:
+			redirectBlogCommentActivity();
+			break;
+		case R.id.menu_news_zihao:
+			// TODO 在这里改变WebView的字体大小，需先判断WebView是不是为空
+			if (contentWebView != null) {
+				changeFont();
+			}
+			break;
+		case R.id.menu_news_fenxiang:
+			// TODO 在这里实现分享的功能
+			Log.i("sharebloglink",currentBlogLink);
+			shareContent("《" + title + "》,来源："
+					+ currentBlogLink
+					+ " 分享自：科学网Android客户端。");
+			break;
+		case R.id.menu_news_shoucang:
+			// TODO 在这里将该博客加入收藏
+			addToCollection();
+			break;
+		}
+		return super.onOptionsItemSelected(mi);
+	}
+
+	/**
+	 * 重定向到显示博客评论activity
+	 * 
+	 */
+	private void redirectBlogCommentActivity() {
+		Intent intent = new Intent();
+		try {
+			intent.setClass(BlogDetailActivity.this, BlogCommentActivity.class);
+			Bundle bundle = new Bundle();
+			String tagString = "blog_comment";
+			
+			bundle.putString("can_comment", noreply);
+			bundle.putString("tag", tagString);
+			bundle.putString("id", currentBlogID);
+
+			intent.putExtras(bundle);
+			startActivityForResult(intent, 0);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+
+	/**
+	 * 将当前的博客加入收藏
+	 */
+	private void addToCollection() {
+		DBManager manager = new DBManager(BlogDetailActivity.this);
+		try {
+			manager.addOneCollection(CollectionItem.TYPE_BLOG, currentBlogID,
+					"[博客]" + this.title, this.currentBlogDescription,
+					"http://news.sciencenet.cn");
+			manager.addCopyrightOfBlog(currentBlogID, currentBlogCopyright);
+			Toast.makeText(BlogDetailActivity.this, "已添加到收藏",
+					Toast.LENGTH_SHORT).show();
+		} catch (Exception e) {
+			Toast.makeText(BlogDetailActivity.this, "该文章已经在收藏中", Toast.LENGTH_LONG)
+					.show();
+			e.printStackTrace();
+		} finally {
+			manager.closeDB();
+		}
+	}
+
+	/**
+	 * 修改WebView的字体
+	 */
+	private void changeFont() {
+		int toSetFlag = (++DataUrlKeys.currentFontSizeFlag) % 3;
+		switch (toSetFlag) {
+		case 0:
+			contentWebView.getSettings().setTextSize(
+					WebSettings.TextSize.NORMAL);
+			break;
+		case 1:
+			contentWebView.getSettings().setTextSize(
+					WebSettings.TextSize.LARGER);
+			break;
+		case 2:
+			contentWebView.getSettings().setTextSize(
+					WebSettings.TextSize.LARGEST);
+			break;
+		default:
+			break;
+		}
+		DataUrlKeys.currentFontSizeFlag = toSetFlag;
+	}
+
+	/**
+	 * 打开分享界面
+	 * 
+	 * @param 要分享的内容
+	 */
+	private void shareContent(String shareContent) {
+		Intent intent = new Intent(Intent.ACTION_SEND);
+		intent.setType("text/plain");
+		intent.putExtra(Intent.EXTRA_SUBJECT, title);
+		intent.putExtra(Intent.EXTRA_TEXT, shareContent);
+		startActivity(Intent.createChooser(intent, title));
+	}
+}

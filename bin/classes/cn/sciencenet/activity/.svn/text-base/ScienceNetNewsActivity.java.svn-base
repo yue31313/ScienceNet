@@ -1,0 +1,503 @@
+package cn.sciencenet.activity;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.net.URLConnection;
+import java.util.ArrayList;
+import java.util.List;
+
+import cn.sciencenet.R;
+import cn.sciencenet.httpclient.XmlItemNews;
+import cn.sciencenet.httpclient.XmlNewsHandler;
+import cn.sciencenet.util.AsyncImageLoader;
+import cn.sciencenet.util.AsyncImageLoader.ImageCallback;
+import cn.sciencenet.util.AppUtil;
+import cn.sciencenet.util.DataUrlKeys;
+import cn.sciencenet.util.DateUtil;
+import cn.sciencenet.util.EncryptBySHA1;
+import cn.sciencenet.util.NetWorkState;
+import cn.sciencenet.view.MyListView;
+import cn.sciencenet.view.MyListView.OnRefreshListener;
+import android.R.integer;
+import android.app.Activity;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.graphics.Color;
+import android.graphics.drawable.Drawable;
+import android.os.AsyncTask;
+import android.os.Bundle;
+import android.os.Handler;
+import android.util.Log;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.View.OnClickListener;
+import android.view.ViewGroup;
+import android.view.Window;
+import android.widget.AdapterView.OnItemClickListener;
+import android.widget.AdapterView;
+import android.widget.BaseAdapter;
+import android.widget.Button;
+import android.widget.ImageView;
+import android.widget.ProgressBar;
+import android.widget.TextView;
+import android.widget.Toast;
+import android.widget.ViewSwitcher;
+
+public class ScienceNetNewsActivity extends Activity {
+
+	private static final String TAG = "ScienceNetNewsActivity";
+	public static final String REFRESH_NOW = "cn.sciencenet.ScienceNetNewsActivity.RefreshNow";
+
+	private MyListView listView;
+
+	private List<XmlItemNews> list;
+	private List<XmlItemNews> lastList;
+	private XmlNewsHandler xmlHandler;
+
+	private NewsAdapter adapter;
+
+	private ViewSwitcher viewSwitcher;
+
+	private Button bt;
+	private ProgressBar pg;
+	private View moreView;
+
+	@Override
+	protected void onCreate(Bundle savedInstanceState) {
+		super.onCreate(savedInstanceState);
+		// 去掉顶部灰条
+		requestWindowFeature(Window.FEATURE_NO_TITLE);
+		setContentView(R.layout.layout_news);
+		setTheme(android.R.style.Theme_Translucent_NoTitleBar);
+
+		initViews();
+
+		xmlHandler = new XmlNewsHandler();
+		requestNews(); // 刚启动的时候刷新一次新闻
+
+		// 注册用来刷新的BroadcastReceiver
+		IntentFilter filter = new IntentFilter(REFRESH_NOW);
+		myReceiver refreshReceiver = new myReceiver();
+		registerReceiver(refreshReceiver, filter);
+	}
+
+	private class myReceiver extends BroadcastReceiver {
+		@Override
+		public void onReceive(Context context, Intent intent) {
+			Log.i(TAG, "--点击按钮刷新新闻页面--");
+			refreshPage();
+		}
+	}
+
+	/**
+	 * 初始化viewSwitcher
+	 */
+	private void initViews() {
+		viewSwitcher = (ViewSwitcher) findViewById(R.id.viewswitcher_news);
+		listView = new MyListView(this);
+		listView.setCacheColorHint(Color.argb(0, 0, 0, 0));
+		listView.setDivider(getResources().getDrawable(
+				R.drawable.list_divider_line));
+		listView.setDividerHeight(1);
+		listView.setSelector(R.drawable.list_item_selector);
+		listView.setonRefreshListener(refreshListener);
+		listView.setOnItemClickListener(listener);
+
+		viewSwitcher.addView(listView);
+		viewSwitcher.addView(getLayoutInflater().inflate(
+				R.layout.layout_progress_page, null));
+		viewSwitcher.showNext();
+		// listView.setOnItemClickListener(listener);
+
+		// 实例化底部布局
+		moreView = getLayoutInflater().inflate(R.layout.moredata, null);
+
+		bt = (Button) moreView.findViewById(R.id.bt_load);
+		pg = (ProgressBar) moreView.findViewById(R.id.pg);
+
+		// 加上底部view
+		listView.addFooterView(moreView);
+		bt.setOnClickListener(bt_listener);
+	}
+
+	/**
+	 * 下拉刷新监听器
+	 */
+	private OnRefreshListener refreshListener = new OnRefreshListener() {
+		@Override
+		public void onRefresh() {
+			Log.i(TAG, "--下拉刷新新闻页面--");
+			refreshPage();
+		}
+	};
+
+	/**
+	 * 刷新当前页面
+	 */
+	private void refreshPage() {
+		new AsyncTask<Void, Void, Void>() {
+			@Override
+			protected Void doInBackground(Void... params) {
+				// try {
+				// Thread.sleep(1000);
+				// } catch (Exception e) {
+				// e.printStackTrace();
+				// }
+				Log.i(TAG, "--刷新当前页--");
+				getNewsList();
+				return null;
+			}
+
+			@Override
+			protected void onPostExecute(Void result) {
+				if (adapter != null) {
+					adapter.notifyDataSetChanged();
+					listView.onRefreshComplete();
+				}
+			}
+
+		}.execute(null);
+	}
+
+	/**
+	 * 请求新闻列表
+	 */
+	private void requestNews() {
+		Thread t = new Thread() {
+			@Override
+			public void run() {
+				getNewsList();
+			}
+		};
+		t.start();
+	}
+
+	/**
+	 * 通过http请求获得更多的新闻
+	 */
+	private void getMoreNewsList() {
+		if (!NetWorkState.isNetworkAvailable(this)) { // 判断网络连接情况
+			handler.sendEmptyMessage(0);
+			return;
+		}
+		try {
+			// 获取新闻列表，存到临时的list里边
+			String lastId = list.get(list.size() - 1).getId();
+			Log.i("listlastId", lastId);
+			URL url = new URL(DataUrlKeys.MORE_NEWS_LIST_URL.replace(
+					"$since_id", lastId));
+			URLConnection con = url.openConnection();
+			con.connect();
+			InputStream input = con.getInputStream();
+			lastList = xmlHandler.getNewsItems(input);
+
+			if (lastList.size() == 0) {
+				handler.sendEmptyMessage(-1);
+			} else {
+				for (XmlItemNews xin : lastList) {
+					list.add(xin);
+				}
+				handler.sendEmptyMessage(2);
+			}
+
+		} catch (MalformedURLException e) {
+			e.printStackTrace();
+		} catch (IOException e) {
+			e.printStackTrace();
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+
+	/**
+	 * 通过http请求获取新闻列表
+	 */
+	private void getNewsList() {
+		Log.i(TAG, "get news list!!!");
+		if (!NetWorkState.isNetworkAvailable(this)) { // 判断网络连接情况
+			handler.sendEmptyMessage(0);
+			return;
+		}
+		try {
+			// 获取新闻列表，存到list里边
+			String pass = EncryptBySHA1.Encrypt(DateUtil.getCurrentDate());
+			URL url = new URL(DataUrlKeys.NEWS_LIST_URL + pass);
+			Log.i("NewsListUrl", DataUrlKeys.NEWS_LIST_URL + pass);
+			URLConnection con = url.openConnection();
+			con.connect();
+			InputStream input = con.getInputStream();
+			list = xmlHandler.getNewsItems(input);
+			// for (XmlItemNews xin : list) {
+			// Log.e("content","id:" + xin.getId());
+			// Log.e("content","title:" + xin.getTitle());
+			// Log.e("content","link:" + xin.getLink());
+			// Log.e("content","description:" + xin.getDescription());
+			// Log.e("content","copyright:" + xin.getCopyright());
+			// Log.e("content","pubDate:" + xin.getPubDate());
+			// Log.e("content","comment:" + xin.getComment());
+			// }
+
+			if (list.size() == 0) {
+				handler.sendEmptyMessage(-1);
+			} else {
+				handler.sendEmptyMessage(1);
+			}
+
+		} catch (MalformedURLException e) {
+			e.printStackTrace();
+		} catch (IOException e) {
+			e.printStackTrace();
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+
+	/**
+	 * 获取更多新闻的线程
+	 * 
+	 * @return
+	 */
+	private Thread getMoreDataThread() {
+		return new Thread() {
+			@Override
+			public void run() {
+				getMoreNewsList();
+			}
+		};
+	}
+
+	private Handler handler = new Handler() {
+		@Override
+		public void handleMessage(android.os.Message msg) {
+			if (msg.what == 1) {
+				Log.i(TAG + " handler", "--handler msg received--");
+				adapter = new NewsAdapter();
+				listView.setAdapter(adapter);
+				viewSwitcher.setDisplayedChild(0);
+				listView.onRefreshComplete();
+			} else if (msg.what == -1) {
+				Toast.makeText(ScienceNetNewsActivity.this, "服务出现异常，请稍后使用",
+						Toast.LENGTH_SHORT);
+			} else if (msg.what == 0) {
+				Toast.makeText(ScienceNetNewsActivity.this,
+						"网络连接不可用，请检查你的网络连接", Toast.LENGTH_LONG).show();
+			} else if (msg.what == 2) {
+				adapter.notifyDataSetChanged();
+				pg.setVisibility(View.GONE);
+				bt.setVisibility(View.VISIBLE);
+			}
+		}
+	};
+
+	private OnClickListener bt_listener = new OnClickListener() {
+
+		@Override
+		public void onClick(View v) {
+			pg.setVisibility(View.VISIBLE);
+			bt.setVisibility(View.GONE);
+
+			getMoreDataThread().start();
+		}
+	};
+
+	private OnItemClickListener listener = new OnItemClickListener() {
+		@Override
+		public void onItemClick(AdapterView<?> parent, View view, int position,
+				long id) {
+			if (position == 0) {
+				return;
+			}
+			// TODO 在这里打开显示具体的新闻的页面
+			redirectDetailActivity(position - 1);
+		}
+	};
+
+	/**
+	 * 打开显示具体的新闻内容的activity
+	 * 
+	 * @param listIndex
+	 *            触发点击事件的那条新闻在新闻list里面的索引
+	 */
+	private void redirectDetailActivity(int listIndex) {
+		Intent intent = new Intent();
+		try {
+			intent.setClass(ScienceNetNewsActivity.this,
+					NewsDetailActivity.class);
+			Bundle bundle = new Bundle();
+			// 将要传递给显示具体新闻页面的数据放入Bundle
+			String tmpId = list.get(listIndex).getId(); // 触发点击事件的那条新闻的ID
+			ArrayList<String> tmpNewsIdList = new ArrayList<String>(); // 当前的新闻的ID列表
+			ArrayList<String> tmpNewsDescriptionList = new ArrayList<String>();
+			for (XmlItemNews item : list) {
+				tmpNewsIdList.add(item.getId());
+				tmpNewsDescriptionList.add(item.getDescription());
+			}
+			int tmpIndex = listIndex; // 触发点击事件的那条新闻所在新闻list里面的索引
+			String tmpDescription = list.get(listIndex).getDescription(); // 触发点击事件的那条新闻的描述
+
+			bundle.putString("current_news_id", tmpId);
+			bundle.putStringArrayList("news_id_list", tmpNewsIdList);
+			bundle.putStringArrayList("news_description_list",
+					tmpNewsDescriptionList);
+			bundle.putInt("current_news_index", tmpIndex);
+			bundle.putString("current_news_description", tmpDescription);
+
+			intent.putExtras(bundle);
+
+			startActivityForResult(intent, 0);
+		} catch (Exception ex) {
+			ex.printStackTrace();
+		}
+	}
+
+	// ListView的Adapter
+	public class NewsAdapter extends BaseAdapter {
+
+		Context mContext = ScienceNetNewsActivity.this;
+		LayoutInflater inflater = LayoutInflater.from(mContext);
+		AsyncImageLoader asyncImageLoader = new AsyncImageLoader(
+				AppUtil.ITEM_IMG_WIDTH, AppUtil.ITEM_IMG_HEIGHT);
+		final int VIEW_TYPE = 2;
+		final int TYPE_WITHOUT_IMG = 0;
+		final int TYPE_WITH_IMG = 1;
+
+		@Override
+		public int getCount() {
+			return list.size();
+		}
+
+		// 每个convertview都会调用此方法，获得当前所需要的view样式
+		@Override
+		public int getItemViewType(int position) {
+			if ("http://news.sciencenet.cn".equals(list.get(position) // 没有图片的新闻
+					.getImgs())) {
+				return TYPE_WITHOUT_IMG;
+			} else {
+				return TYPE_WITH_IMG;
+			}
+		}
+
+		@Override
+		public int getViewTypeCount() {
+			return 2;
+		}
+
+		@Override
+		public Object getItem(int position) {
+			return list.get(position);
+		}
+
+		@Override
+		public long getItemId(int position) {
+			return position;
+		}
+
+		@Override
+		public View getView(int position, View convertView, ViewGroup parent) {
+			NewsViewHolder holder = null;
+			NewsViewsHolderWithImg holderWithImg = null;
+			int type = getItemViewType(position);
+
+			if (convertView == null) {
+				switch (type) {
+				case TYPE_WITHOUT_IMG:
+					holder = new NewsViewHolder();
+					convertView = getLayoutInflater().inflate(
+							R.layout.news_list_item, null);
+					holder.tv_title = (TextView) convertView
+							.findViewById(R.id.news_item_title);
+					holder.tv_description = (TextView) convertView
+							.findViewById(R.id.news_item_description);
+					convertView.setTag(holder);
+					break;
+				case TYPE_WITH_IMG:
+					holderWithImg = new NewsViewsHolderWithImg();
+					convertView = getLayoutInflater().inflate(
+							R.layout.news_list_item_with_img, null);
+					holderWithImg.tv_title = (TextView) convertView
+							.findViewById(R.id.news_item_title);
+					holderWithImg.tv_description = (TextView) convertView
+							.findViewById(R.id.news_item_description);
+					holderWithImg.iv_imgs = (ImageView) convertView
+							.findViewById(R.id.news_item_img);
+					convertView.setTag(holderWithImg);
+					break;
+				default:
+					break;
+				}
+			} else {
+				switch (type) {
+				case TYPE_WITHOUT_IMG:
+					holder = (NewsViewHolder) convertView.getTag();
+					break;
+				case TYPE_WITH_IMG:
+					holderWithImg = (NewsViewsHolderWithImg) convertView
+							.getTag();
+					break;
+				default:
+					break;
+				}
+			}
+			switch (type) {
+			case TYPE_WITHOUT_IMG:
+				holder.tv_title.setText(list.get(position).getTitle());
+				holder.tv_description.setText(list.get(position)
+						.getDescription());
+				break;
+			case TYPE_WITH_IMG:
+				holderWithImg.tv_title.setText(list.get(position).getTitle());
+				holderWithImg.tv_description.setText(list.get(position)
+						.getDescription());
+				// TODO 在此处异步加载图片
+				holderWithImg.iv_imgs.setTag(list.get(position).getImgs());
+				Drawable cachedImage = asyncImageLoader.loadDrawable(
+						list.get(position).getImgs(), new ImageCallback() {
+							@Override
+							public void imageLoaded(Drawable imageDrawable,
+									String imageUrl) {
+								ImageView imageViewByTag = (ImageView) listView
+										.findViewWithTag(imageUrl);
+								if (imageViewByTag != null
+										&& imageDrawable != null) {
+									imageViewByTag
+											.setImageDrawable(imageDrawable);
+									// Log.e("在回调里面设置好图片", "liushuai");
+								} else {
+									try {
+										imageViewByTag
+												.setImageResource(R.drawable.sync);
+										// Log.e("在回调里面设置了默认的图片", "liushuai");
+									} catch (Exception e) {
+									}
+								}
+							}
+						});
+				holderWithImg.iv_imgs.setImageResource(R.drawable.sync);
+				if (cachedImage != null) {
+					// Log.e("没在回调里设置好图片", "liushuai");
+					holderWithImg.iv_imgs.setImageDrawable(cachedImage);
+				}
+				break;
+			default:
+				break;
+			}
+			// Log.e("getView", "" + asyncImageLoader.imageCache.size());
+			return convertView;
+		}
+
+		public class NewsViewHolder {
+			TextView tv_title;
+			TextView tv_description;
+		}
+
+		public class NewsViewsHolderWithImg {
+			TextView tv_title;
+			TextView tv_description;
+			ImageView iv_imgs;
+		}
+	}
+}

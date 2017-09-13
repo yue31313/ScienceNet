@@ -1,0 +1,326 @@
+package cn.sciencenet.activity;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+
+import cn.sciencenet.R;
+import cn.sciencenet.datastorage.CollectionItem;
+import cn.sciencenet.datastorage.DBManager;
+import cn.sciencenet.util.AppUtil;
+import cn.sciencenet.util.FileAccess;
+import android.app.Activity;
+import android.content.Context;
+import android.content.Intent;
+import android.database.Cursor;
+import android.graphics.Color;
+import android.os.Bundle;
+import android.os.Handler;
+import android.util.Log;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.Window;
+import android.widget.AdapterView;
+import android.widget.BaseAdapter;
+import android.widget.ImageView;
+import android.widget.ListView;
+import android.widget.TextView;
+import android.widget.ViewSwitcher;
+import android.widget.AdapterView.OnItemClickListener;
+
+public class TabCollectionActivity extends Activity {
+	private ViewSwitcher viewSwitcher;
+	private ListView listView;
+	private CollectionAdapter adapter;
+
+	private CollectionItem collectionItem; // 数据库里的一条收藏记录
+	private List<CollectionItem> collectionItemList; // 存放所有收藏记录的列表
+	private HashMap<String, String> blogCopyrightMap; // 存放博客和博客作者的map，<blog_id:copyright>
+	private HashMap<String, String> npcontentCanCommentMap; // 存放报刊具体内容和它的评论权限的map
+															// <newspaper_content_id:can_comment>
+
+	public static boolean hasBeenDeleted = false;
+	public static int currentType;
+	public static String currrentId;
+
+	private DBManager manager;
+
+	@Override
+	protected void onCreate(Bundle savedInstanceState) {
+		super.onCreate(savedInstanceState);
+		requestWindowFeature(Window.FEATURE_NO_TITLE);
+		setContentView(R.layout.layout_collection_list);
+	}
+
+	@Override
+	protected void onResume() {
+		super.onResume();
+		if (TabCollectionActivity.hasBeenDeleted == true) {
+			DBManager tmpManager = new DBManager(TabCollectionActivity.this);
+			tmpManager.dropOneCollection(currentType, currrentId);
+			tmpManager.closeDB();
+		}
+		initVIews();
+		initData();
+	}
+
+	/**
+	 * 初始化一些View
+	 */
+	private void initVIews() {
+		viewSwitcher = (ViewSwitcher) findViewById(R.id.collection_list_viewswitcher);
+		listView = new ListView(this);//代码形式创建
+		listView.setDivider(getResources().getDrawable(
+				R.drawable.list_divider_line));
+		listView.setDividerHeight(1);
+		listView.setSelector(R.drawable.list_item_selector);
+		listView.setCacheColorHint(Color.argb(0, 0, 0, 0));
+
+		viewSwitcher.removeAllViews();
+		viewSwitcher.addView(listView);
+		viewSwitcher.addView(getLayoutInflater().inflate(
+				R.layout.layout_progress_page, null));
+		viewSwitcher.showNext(); // 刚开始的时候显示progressPage
+	}
+
+	/**
+	 * 初始化类里面一些必要的数据
+	 */
+	private void initData() {
+		manager = new DBManager(this);
+		collectionItemList = new ArrayList<CollectionItem>();
+		blogCopyrightMap = new HashMap<String, String>();
+		npcontentCanCommentMap = new HashMap<String, String>();
+		adapter = new CollectionAdapter();
+		hasBeenDeleted = false;
+		readAllCollections();
+	}
+
+	/**
+	 * 开启新线程去数据库读取所有的收藏记录
+	 */
+	private void readAllCollections() {
+		Thread t = new Thread() {
+			@Override
+			public void run() {
+				Cursor c = manager.queryAllCollections();
+				while (c.moveToNext()) {
+					collectionItem = new CollectionItem();
+					collectionItem.setType(c.getInt(c.getColumnIndex("type")));
+					collectionItem.setId(c.getString(c.getColumnIndex("id")));
+					collectionItem.setTitle(c.getString(c
+							.getColumnIndex("title")));
+					collectionItem.setDescription(c.getString(c
+							.getColumnIndex("description")));
+					collectionItem
+							.setImgs(c.getString(c.getColumnIndex("imgs")));
+					collectionItemList.add(collectionItem);
+
+				}
+				// 遍历收藏列表，找到类型为博客的收藏，去数据库里面读出它的作者
+				for (CollectionItem ci : collectionItemList) {
+					// Log.e("all collections", ci.getType() + "-" +
+					// ci.getTitle()
+					// + "-" + ci.getDescription() + "-" + ci.getId()
+					// + "-" + ci.getImgs());
+					if (ci.getType() == CollectionItem.TYPE_BLOG) {
+						String tmpCopyright = manager.getCopyrightByBlogId(ci
+								.getId());
+						blogCopyrightMap.put(ci.getId(), tmpCopyright);
+					} else if (ci.getType() == CollectionItem.TYPE_NEWSPAPER) {
+						String tmpCanComment = manager
+								.getCanCommentByNpContentId(ci.getId());
+						npcontentCanCommentMap.put(ci.getId(), tmpCanComment);
+					}
+				}
+				manager.closeDB();
+				handler.sendEmptyMessage(0); // 通知UI线程更新UI
+			}
+		};
+		t.start();
+	}
+
+	private Handler handler = new Handler() {
+		@Override
+		public void handleMessage(android.os.Message msg) {
+			if (msg.what == 0) { // 数据库操作完毕
+				listView.setOnItemClickListener(listener);
+				listView.setAdapter(adapter);
+				viewSwitcher.setDisplayedChild(0);
+			}
+		}
+	};
+
+	private OnItemClickListener listener = new OnItemClickListener() {
+		@Override
+		public void onItemClick(AdapterView<?> parent, View view, int position,
+				long id) {
+			// TODO 在此处打开显示具体收藏内容的activity
+			redirectToCollectionDetailActivity(position);
+		}
+	};
+
+	/**
+	 * 打开显示具体收藏内容的activity
+	 * 
+	 * @param 触发点击事件的那个Item的索引
+	 */
+	private void redirectToCollectionDetailActivity(int listIndex) {
+		Intent intent = new Intent(TabCollectionActivity.this,
+				CollectionDetailActivity.class);
+		Bundle bundle = new Bundle();
+		bundle.putInt("collection_type", collectionItemList.get(listIndex)
+				.getType());
+		TabCollectionActivity.currentType = collectionItemList.get(listIndex)
+				.getType();
+		bundle.putString("collection_id", collectionItemList.get(listIndex)
+				.getId());
+		TabCollectionActivity.currrentId = collectionItemList.get(listIndex)
+				.getId();
+		// 如果收藏类型是博客的话，由于博客的具体内容没有作者这一项，所以要把博客的作者一同put过去
+		if (collectionItemList.get(listIndex).getType() == CollectionItem.TYPE_BLOG) {
+			bundle.putString("blog_copyright", blogCopyrightMap
+					.get(collectionItemList.get(listIndex).getId()));
+			Log.i("source_copyright", blogCopyrightMap.get(collectionItemList
+					.get(listIndex).getId()));
+		} else if (collectionItemList.get(listIndex).getType() == CollectionItem.TYPE_NEWSPAPER) {
+			bundle.putString("npcontent_can_comment", npcontentCanCommentMap
+					.get(collectionItemList.get(listIndex).getId()));
+			Log.i("source_cancomment", npcontentCanCommentMap
+					.get(collectionItemList.get(listIndex).getId()));
+		}
+
+		intent.putExtras(bundle);
+		startActivity(intent);
+	}
+
+	// listView的Adapter
+	public class CollectionAdapter extends BaseAdapter {
+		Context mContext = TabCollectionActivity.this;
+		LayoutInflater inflater = LayoutInflater.from(mContext);
+
+		final int VIEW_TYPE = 2;
+		final int TYPE_WITHOUT_IMG = 0;
+		final int TYPE_WITH_IMG = 1;
+
+		@Override
+		public int getCount() {
+			return collectionItemList.size();
+		}
+
+		@Override
+		public int getItemViewType(int position) {
+			if ("http://news.sciencenet.cn".equals(collectionItemList.get(
+					position).getImgs())) {
+				return TYPE_WITHOUT_IMG;
+			} else {
+				return TYPE_WITH_IMG;
+			}
+		}
+
+		@Override
+		public int getViewTypeCount() {
+			return 2;
+		}
+
+		@Override
+		public Object getItem(int position) {
+			return collectionItemList.get(position);
+		}
+
+		@Override
+		public long getItemId(int position) {
+			return position;
+		}
+
+		@Override
+		public View getView(int position, View convertView, ViewGroup parent) {
+			CollectionViewHolder holder = null;
+			CollectionViewHolderWithImg holderWithImg = null;
+			int type = getItemViewType(position);
+
+			if (convertView == null) {
+				switch (type) {
+				case TYPE_WITHOUT_IMG:
+					holder = new CollectionViewHolder();
+					convertView = getLayoutInflater().inflate(
+							R.layout.news_list_item, null);
+					holder.tv_title = (TextView) convertView
+							.findViewById(R.id.news_item_title);
+					holder.tv_description = (TextView) convertView
+							.findViewById(R.id.news_item_description);
+					convertView.setTag(holder);
+					break;
+				case TYPE_WITH_IMG:
+					holderWithImg = new CollectionViewHolderWithImg();
+					convertView = getLayoutInflater().inflate(
+							R.layout.news_list_item_with_img, null);
+					holderWithImg.tv_title = (TextView) convertView
+							.findViewById(R.id.news_item_title);
+					holderWithImg.tv_description = (TextView) convertView
+							.findViewById(R.id.news_item_description);
+					holderWithImg.iv_imgs = (ImageView) convertView
+							.findViewById(R.id.news_item_img);
+					convertView.setTag(holderWithImg);
+					break;
+				default:
+					break;
+				}
+			} else {
+				switch (type) {
+				case TYPE_WITHOUT_IMG:
+					holder = (CollectionViewHolder) convertView.getTag();
+					break;
+				case TYPE_WITH_IMG:
+					holderWithImg = (CollectionViewHolderWithImg) convertView
+							.getTag();
+					break;
+				default:
+					break;
+				}
+			}
+			switch (type) {
+			case TYPE_WITHOUT_IMG:
+				holder.tv_title.setText(collectionItemList.get(position)
+						.getTitle());
+				holder.tv_description.setText(collectionItemList.get(position)
+						.getDescription());
+				break;
+			case TYPE_WITH_IMG:
+				holderWithImg.tv_title.setText(collectionItemList.get(position)
+						.getTitle());
+				holderWithImg.tv_description.setText(collectionItemList.get(
+						position).getDescription());
+				String folder = FileAccess
+						.getFolderByCollectionType(collectionItemList.get(
+								position).getType());
+				// holderWithImg.iv_imgs.setImageDrawable(FileAccess
+				// .getDrawableByFolder(folder,
+				// collectionItemList.get(position).getImgs()));
+				holderWithImg.iv_imgs
+						.setImageBitmap(FileAccess
+								.decodeSampledBitmapFromResource(folder
+										+ collectionItemList.get(position)
+												.getImgs(),
+										AppUtil.ITEM_IMG_WIDTH,
+										AppUtil.ITEM_IMG_HEIGHT));
+				break;
+			default:
+				break;
+			}
+			return convertView;
+		}
+
+		public class CollectionViewHolder {
+			TextView tv_title;
+			TextView tv_description;
+		}
+
+		public class CollectionViewHolderWithImg {
+			TextView tv_title;
+			TextView tv_description;
+			ImageView iv_imgs;
+		}
+	}
+}

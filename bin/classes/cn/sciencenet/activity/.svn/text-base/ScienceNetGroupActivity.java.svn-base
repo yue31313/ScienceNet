@@ -1,0 +1,374 @@
+package cn.sciencenet.activity;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.net.URLConnection;
+import java.util.ArrayList;
+import java.util.List;
+
+import android.app.Activity;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.graphics.Color;
+import android.os.AsyncTask;
+import android.os.Bundle;
+import android.os.Handler;
+import android.util.Log;
+import android.view.View;
+import android.view.View.OnClickListener;
+import android.view.ViewGroup;
+import android.view.Window;
+import android.widget.AdapterView;
+import android.widget.AdapterView.OnItemClickListener;
+import android.widget.BaseAdapter;
+import android.widget.Button;
+import android.widget.ProgressBar;
+import android.widget.TextView;
+import android.widget.Toast;
+import android.widget.ViewSwitcher;
+import cn.sciencenet.R;
+import cn.sciencenet.httpclient.XmlGroupHandler;
+import cn.sciencenet.httpclient.XmlItemGroup;
+import cn.sciencenet.util.DataUrlKeys;
+import cn.sciencenet.util.DateUtil;
+import cn.sciencenet.util.EncryptBySHA1;
+import cn.sciencenet.util.NetWorkState;
+import cn.sciencenet.view.MyListView;
+import cn.sciencenet.view.MyListView.OnRefreshListener;
+
+public class ScienceNetGroupActivity extends Activity {
+
+	private static final String TAG = "ScienceNetGroupActivity";
+	public static final String REFRESH_NOW = "cn.sciencenet.ScienceNetGroupActivity.RefreshNow";
+
+	private MyListView groupList;
+
+	private List<XmlItemGroup> list;
+	private List<XmlItemGroup> lastList;
+	private XmlGroupHandler xmlHandler;
+
+	private GroupAdapter adapter;
+
+	private ViewSwitcher viewSwitcher;
+	
+	private Button bt;
+	private ProgressBar pg;
+	private View moreView;
+
+	@Override
+	protected void onCreate(Bundle savedInstanceState) {
+		super.onCreate(savedInstanceState);
+		// 去掉顶部灰条
+		requestWindowFeature(Window.FEATURE_NO_TITLE);
+		setContentView(R.layout.layout_news);
+		setTheme(android.R.style.Theme_Black_NoTitleBar);
+
+		initViews();
+
+		xmlHandler = new XmlGroupHandler();
+		requestGroup();
+
+		IntentFilter filter = new IntentFilter(REFRESH_NOW);
+		myReceiver refreshReceiver = new myReceiver();
+		registerReceiver(refreshReceiver, filter);
+	}
+
+	private class myReceiver extends BroadcastReceiver {
+		@Override
+		public void onReceive(Context context, Intent intent) {
+			Log.i(TAG, "--点击按钮刷新群组页面--");
+			refreshPage();
+		}
+	}
+
+	/**
+	 * 初始化页面
+	 */
+	private void initViews() {
+		viewSwitcher = (ViewSwitcher) findViewById(R.id.viewswitcher_news);
+		groupList = new MyListView(this);
+		groupList.setCacheColorHint(Color.argb(0, 0, 0, 0));
+		groupList.setDivider(getResources().getDrawable(
+				R.drawable.list_divider_line));
+		groupList.setDividerHeight(1);
+		groupList.setSelector(R.drawable.list_item_selector);
+		groupList.setonRefreshListener(refreshListener);
+		groupList.setOnItemClickListener(listener);
+
+		viewSwitcher.addView(groupList);
+		viewSwitcher.addView(getLayoutInflater().inflate(
+				R.layout.layout_progress_page, null));
+		viewSwitcher.showNext();
+		
+		// 实例化底部布局
+		moreView = getLayoutInflater().inflate(R.layout.moredata, null);
+
+		bt = (Button) moreView.findViewById(R.id.bt_load);
+		pg = (ProgressBar) moreView.findViewById(R.id.pg);
+
+		// 加上底部view
+		groupList.addFooterView(moreView);
+		bt.setOnClickListener(bt_listener);
+	}
+
+	private OnClickListener bt_listener = new OnClickListener() {
+
+		@Override
+		public void onClick(View v) {
+			pg.setVisibility(View.VISIBLE);
+			bt.setVisibility(View.GONE);
+
+			getMoreDataThread().start();
+		}
+	};
+	
+	private OnRefreshListener refreshListener = new OnRefreshListener() {
+
+		@Override
+		public void onRefresh() {
+			Log.i(TAG, "--下拉刷新群组页面--");
+			refreshPage();
+		}
+	};
+
+	/**
+	 * 刷新当前页
+	 */
+	private void refreshPage() {
+		new AsyncTask<Void, Void, Void>() {
+			@Override
+			protected Void doInBackground(Void... params) {
+				getGroupList();
+				return null;
+			}
+
+			@Override
+			protected void onPostExecute(Void result) {
+				if (adapter != null) {
+					adapter.notifyDataSetChanged();
+					groupList.onRefreshComplete();
+				}
+			}
+		}.execute(null);
+	}
+
+	/**
+	 * 请求群组列表
+	 */
+	private void requestGroup() {
+		Thread t = new Thread() {
+			@Override
+			public void run() {
+				getGroupList();
+			}
+		};
+		t.start();
+	}
+
+	/**
+	 * 获取更多群组的线程
+	 * 
+	 * @return
+	 */
+	private Thread getMoreDataThread() {
+		return new Thread() {
+			@Override
+			public void run() {
+				getMoreGroupList();
+			}
+		};
+	}
+	
+	/**
+	 * 获取更多群组列表
+	 */
+	private void getMoreGroupList(){
+		if (!NetWorkState.isNetworkAvailable(this)) {
+			handler.sendEmptyMessage(0);
+			return;
+		}
+		try {
+			// 获取新闻列表，存到临时的list里边
+			String lastId = list.get(list.size() - 1).getTid();
+			URL url = new URL(DataUrlKeys.MORE_GROUP_LIST_URL.replace("$since_id", lastId));
+			URLConnection con = url.openConnection();
+			con.connect();
+			InputStream input = con.getInputStream();
+			lastList = xmlHandler.getGroupItems(input);
+
+			if (lastList.size() == 0) {
+				handler.sendEmptyMessage(-1);
+			} else {
+				for (XmlItemGroup xig : lastList) {
+					list.add(xig);
+				}
+				handler.sendEmptyMessage(2);
+			}
+
+		} catch (MalformedURLException e) {
+			e.printStackTrace();
+		} catch (IOException e) {
+			e.printStackTrace();
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+	/**
+	 * 获取群组列表
+	 */
+	private void getGroupList() {
+		Log.i(TAG, "get group list!!!");
+		if (!NetWorkState.isNetworkAvailable(this)) {
+			handler.sendEmptyMessage(0);
+			return;
+		}
+		try {
+			String pass = EncryptBySHA1.Encrypt(DateUtil.getCurrentDate());
+			URL url = new URL(DataUrlKeys.GROUP_LIST_URL + pass);
+			Log.i("NewsGroupUrl", DataUrlKeys.NEWS_LIST_URL + pass);
+			URLConnection con = url.openConnection();
+			con.connect();
+			InputStream input = con.getInputStream();
+			list = xmlHandler.getGroupItems(input);
+
+			if (list.size() == 0) {
+				handler.sendEmptyMessage(-1);
+			} else {
+				handler.sendEmptyMessage(1);
+			}
+
+		} catch (MalformedURLException e) {
+			e.printStackTrace();
+		} catch (IOException e) {
+			e.printStackTrace();
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+
+	private Handler handler = new Handler() {
+		@Override
+		public void handleMessage(android.os.Message msg) {
+			if (msg.what == 1) {
+				Log.i(TAG + " handler", "--handler msg received--");
+				adapter = new GroupAdapter();
+				
+				groupList.setAdapter(adapter);
+				viewSwitcher.setDisplayedChild(0);
+				groupList.onRefreshComplete();
+			} else if (msg.what == -1) {
+				Toast.makeText(ScienceNetGroupActivity.this, "服务器出现异常，请稍后使用",
+						Toast.LENGTH_SHORT).show();
+			} else if (msg.what == 0) {
+				Toast.makeText(ScienceNetGroupActivity.this,
+						"网络连接不可用，请检查你的网络连接", Toast.LENGTH_SHORT).show();
+			}else if(msg.what == 2){
+				adapter.notifyDataSetChanged();
+				pg.setVisibility(View.GONE);
+				bt.setVisibility(View.VISIBLE);
+			}
+		}
+	};
+
+	private OnItemClickListener listener = new OnItemClickListener() {
+		@Override
+		public void onItemClick(AdapterView<?> parent, View view, int position,
+				long id) {
+			if (position == 0) {
+				return;
+			}
+			// TODO 在这里打开显示具体的群组的页面
+			// Toast.makeText(ScienceNetGroupActivity.this,
+			// "show group details~",
+			// Toast.LENGTH_SHORT).show();
+			redirectDetailActivity(position - 1);
+		}
+
+	};
+
+	/**
+	 * 打开显示具体群组内容的activity
+	 * 
+	 * @param listIndex
+	 *            触发点击事件的那条群组在群组list里面的索引
+	 */
+	private void redirectDetailActivity(int listIndex) {
+		Intent intent = new Intent();
+		try {
+			intent.setClass(ScienceNetGroupActivity.this,
+					GroupDetailActivity.class);
+			Bundle bundle = new Bundle();
+			String tmpId = list.get(listIndex).getTid(); // current_group_id
+			int tmpIndex = listIndex; // current_group_index
+			String tmpCurrentGroupDescription = list.get(listIndex).getDescription();
+			ArrayList<String> tmpGroupIdList = new ArrayList<String>();
+			ArrayList<String> tmpGroupDescriptionList = new ArrayList<String>();
+			for (XmlItemGroup xig : list) {
+				tmpGroupIdList.add(xig.getTid());
+				tmpGroupDescriptionList.add(xig.getDescription());
+			}
+
+			bundle.putString("current_group_id", tmpId);
+			bundle.putInt("current_group_index", tmpIndex);
+			bundle.putStringArrayList("group_id_list", tmpGroupIdList);
+			bundle.putStringArrayList("group_description_list",
+					tmpGroupDescriptionList);
+			bundle.putString("current_group_description", tmpCurrentGroupDescription);
+
+			intent.putExtras(bundle);
+
+			startActivityForResult(intent, 0);
+		} catch (Exception ex) {
+			ex.printStackTrace();
+		}
+	}
+
+	public class GroupAdapter extends BaseAdapter {
+
+		@Override
+		public int getCount() {
+			return list.size();
+		}
+
+		@Override
+		public Object getItem(int position) {
+			return null;
+		}
+
+		@Override
+		public long getItemId(int position) {
+			return 0;
+		}
+
+		@Override
+		public View getView(int position, View convertView, ViewGroup parent) {
+			GroupViewHolder holder;
+			if (convertView == null) {
+				holder = new GroupViewHolder();
+				convertView = getLayoutInflater().inflate(
+						R.layout.news_list_item, null);
+				holder.tv_title = (TextView) convertView
+						.findViewById(R.id.news_item_title);
+				holder.tv_description = (TextView) convertView
+						.findViewById(R.id.news_item_description);
+				convertView.setTag(holder);
+			} else {
+				holder = (GroupViewHolder) convertView.getTag();
+			}
+
+			holder.tv_title.setText(list.get(position).getTitle());
+			holder.tv_description.setText(list.get(position).getDescription());
+
+			return convertView;
+		}
+
+		public class GroupViewHolder {
+			TextView tv_title;
+			TextView tv_description;
+		}
+	}
+}

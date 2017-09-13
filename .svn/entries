@@ -1,0 +1,110 @@
+8
+
+dir
+50
+svn://www.oksvn.com/ScienceNetReader/ScienceNetReader
+svn://www.oksvn.com/ScienceNetReader
+
+
+
+2012-07-08T03:20:29.403500Z
+50
+zouliping007
+
+
+svn:special svn:externals svn:needs-lock
+
+
+
+
+
+
+
+
+
+
+
+d912e39c-7206-3c4b-b31f-fc0a04399c74
+
+.classpath
+file
+
+
+
+
+2012-07-08T05:36:36.567503Z
+4d68b8829dfec640877b51e499a05cd0
+2012-06-15T10:30:52.595375Z
+41
+zouliping007
+
+proguard.cfg
+file
+
+
+
+
+2012-07-08T05:36:36.571503Z
+03ea0fdd0a4aabc43b80216d64438921
+2012-06-02T13:31:32.413875Z
+2
+liushuaikobe
+
+project.properties
+file
+
+
+
+
+2012-07-08T05:36:36.574503Z
+9c6ec7cf9e55cb28199b2b5cf943263d
+2012-06-02T13:31:32.413875Z
+2
+liushuaikobe
+
+assets
+dir
+
+.project
+file
+
+
+
+
+2012-07-08T05:36:36.577504Z
+6a3524516836c5f2acb49e30fc871267
+2012-06-02T13:31:32.413875Z
+2
+liushuaikobe
+
+AndroidManifest.xml
+file
+
+
+
+
+2012-07-08T05:36:36.581504Z
+2f81483e2f755f79ad937caccec18882
+2012-06-15T11:41:13.939125Z
+42
+liushuaikobe
+
+src
+dir
+
+gen
+dir
+
+res
+dir
+
+libs
+dir
+
+
+
+add
+
+.settings
+dir
+

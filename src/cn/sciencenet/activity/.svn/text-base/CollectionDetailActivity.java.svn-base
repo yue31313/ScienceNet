@@ -1,0 +1,631 @@
+package cn.sciencenet.activity;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.net.URLConnection;
+
+import cn.sciencenet.R;
+import cn.sciencenet.datastorage.CollectionItem;
+import cn.sciencenet.httpclient.XmlBlogDetailHandler;
+import cn.sciencenet.httpclient.XmlGroupDetailHandler;
+import cn.sciencenet.httpclient.XmlNewsDetailHandler;
+import cn.sciencenet.httpclient.XmlNewspaperContentHandler;
+import cn.sciencenet.util.AppUtil;
+import cn.sciencenet.util.DataUrlKeys;
+import cn.sciencenet.util.DateUtil;
+import cn.sciencenet.util.EncryptBySHA1;
+import cn.sciencenet.util.HttpUtil;
+import cn.sciencenet.util.NetWorkState;
+import android.app.Activity;
+import android.content.Intent;
+import android.os.Bundle;
+import android.os.Handler;
+import android.util.Log;
+import android.view.Menu;
+import android.view.MenuInflater;
+import android.view.MenuItem;
+import android.view.View;
+import android.view.Window;
+import android.view.WindowManager;
+import android.view.View.OnClickListener;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebSettings.LayoutAlgorithm;
+import android.widget.Button;
+import android.widget.Toast;
+import android.widget.ViewSwitcher;
+
+public class CollectionDetailActivity extends Activity {
+	// 一下数据是从收藏的列表Activity传过来的bundle获取到的
+	private int type; // 当前的收藏是什么类型
+	private String currentId; // 当前收藏的Id
+	private String blogCopyright; // 如果当前的收藏是博客的，把博客的作者保存起来
+	private String npContentCanComment; // 如果当前的收藏是报刊的具体内容的话，把这篇文章的评论权限情况保存起来
+
+	// 一下数据是解析某一篇具体的收藏的xml获得的
+	private String title = "";
+	private String copyright = "";
+	private String sourse = "";
+	private String pubDate = "";
+	private String content = "";
+	private String comment = ""; // 评论情况
+
+	private XmlNewsDetailHandler xmlHandler_news = new XmlNewsDetailHandler(); // 解析新闻具体内容的handler
+	private XmlBlogDetailHandler xmlHandler_blog = new XmlBlogDetailHandler();
+	private XmlGroupDetailHandler xmlHandler_group = new XmlGroupDetailHandler();
+	private XmlNewspaperContentHandler xmlHandler = new XmlNewspaperContentHandler();
+
+	private Button goBackButton;
+	private ViewSwitcher viewSwitcher;
+	private WebView contentWebView;
+
+	private final String mimeType = "text/html";
+	private final String encoding = "utf-8";
+
+	// private static int currentFontSizeFlag = 1; //
+	// 字体大小标志位，0代表normal，1代表larger，2代表largest
+
+	private Thread getCollectionDetailThread;
+
+	@Override
+	protected void onCreate(Bundle savedInstanceState) {
+		super.onCreate(savedInstanceState);
+		requestWindowFeature(Window.FEATURE_NO_TITLE);
+		getWindow().setFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+				WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+		setContentView(R.layout.layout_collection_detail);
+
+		initViews();
+		initData();
+	}
+
+	/**
+	 * 初始化View
+	 */
+	private void initViews() {
+		viewSwitcher = (ViewSwitcher) findViewById(R.id.viewswitcher_collection);
+
+		contentWebView = new WebView(this);
+		contentWebView.addJavascriptInterface(this, "javatojs");
+		contentWebView.setScrollBarStyle(0);
+		WebSettings webSetting = contentWebView.getSettings();
+		webSetting.setDefaultTextEncodingName("utf-8");
+		webSetting.setJavaScriptEnabled(true);
+		webSetting.setPluginsEnabled(true);
+		webSetting.setNeedInitialFocus(false);
+		webSetting.setSupportZoom(true);
+		// webSetting.setLayoutAlgorithm(LayoutAlgorithm.SINGLE_COLUMN);
+		// webSetting.setTextSize(WebSettings.TextSize.LARGER);
+		AppUtil.setFont(contentWebView);
+		webSetting.setCacheMode(WebSettings.LOAD_DEFAULT
+				| WebSettings.LOAD_CACHE_ELSE_NETWORK);
+
+		viewSwitcher.addView(contentWebView);
+		viewSwitcher.addView(getLayoutInflater().inflate(
+				R.layout.layout_progress_page, null));
+		viewSwitcher.showNext();
+
+		// 返回按钮
+		goBackButton = (Button) findViewById(R.id.go_back);
+		goBackButton.setOnClickListener(new OnClickListener() {
+			public void onClick(View v) {
+				CollectionDetailActivity.this.finish();
+			}
+		});
+	}
+
+	/**
+	 * 初始化类的必要的数据
+	 */
+	private void initData() {
+		// 从收藏列表传过来的数据
+		this.type = getIntent().getIntExtra("collection_type",
+				CollectionItem.TYPE_NEWS);
+		this.currentId = getIntent().getStringExtra("collection_id");
+		if (type == CollectionItem.TYPE_BLOG) {
+			this.blogCopyright = getIntent().getStringExtra("blog_copyright");
+			Log.i("destination_copyrigh",
+					getIntent().getStringExtra("blog_copyright"));
+		} else if (type == CollectionItem.TYPE_NEWSPAPER) {
+			this.npContentCanComment = getIntent().getStringExtra(
+					"npcontent_can_comment");
+			Log.i("destination_np_content_can_comment", getIntent()
+					.getStringExtra("npcontent_can_comment"));
+		}
+
+		// 启动新线程解析XML获取数据
+		getCollectionDetailThread = getThreadInstaceByCollectionType(type);
+		getCollectionDetailThread.start();
+	}
+
+	/**
+	 * 根据收藏的类型不同返回不同的线程实例
+	 */
+	private Thread getThreadInstaceByCollectionType(int aCollectionType) {
+		switch (aCollectionType) {
+		case CollectionItem.TYPE_NEWS:
+			return new Thread() {
+				@Override
+				public void run() {
+					handler.sendEmptyMessage(-1); // 显示转圈的进度条
+					getNewsDetails(currentId);
+					setNewsWebView();
+					handler.sendEmptyMessage(1); // 显示webView
+				}
+			};
+		case CollectionItem.TYPE_BLOG:
+			return new Thread() {
+				@Override
+				public void run() {
+					handler.sendEmptyMessage(-1); // 显示转圈的进度条
+					getBlogDetails(currentId);
+					setBlogWebView();
+					handler.sendEmptyMessage(1); // 显示webView
+				}
+			};
+		case CollectionItem.TYPE_GROUP:
+			return new Thread() {
+				@Override
+				public void run() {
+					handler.sendEmptyMessage(-1); // 显示转圈的进度条
+					getGroupDetails(currentId);
+					setGroupWebView();
+					handler.sendEmptyMessage(1); // 显示webView
+				}
+			};
+		case CollectionItem.TYPE_NEWSPAPER:
+			return new Thread() {
+				@Override
+				public void run() {
+					handler.sendEmptyMessage(-1); // 显示转圈的进度条
+					getNewspaperDetails(currentId);
+					setNewspaperWebView();
+					handler.sendEmptyMessage(1); // 显示webView
+				}
+			};
+		default:
+			break;
+		}
+		return null;
+	}
+
+	/**
+	 * 获取新闻的具体内容，此方法在子线程中被调用
+	 */
+	private void getNewsDetails(String newsId) {
+		if (!NetWorkState.isNetworkAvailable(this)) { // 判断网络连接情况
+			handler.sendEmptyMessage(0);
+			return;
+		}
+		try {
+			String pass = EncryptBySHA1.Encrypt(DateUtil.getCurrentDate());
+			URL url = new URL(
+					DataUrlKeys.NEWS_DETAIL_URL.replace("$pass", pass) + newsId);
+			Log.i("NewsContentUrl",
+					DataUrlKeys.NEWS_DETAIL_URL.replace("$pass", pass) + newsId);
+			URLConnection con = url.openConnection();
+			con.connect();
+			InputStream input = con.getInputStream();
+			Bundle bundle = xmlHandler_news.getNewsDetails(input);
+
+			title = bundle.getString("news_title");
+			copyright = bundle.getString("news_copyright");
+			pubDate = bundle.getString("news_pubDate");
+			content = bundle.getString("news_description");
+			sourse = bundle.getString("news_sourse");
+			comment = bundle.getString("news_comment");
+
+		} catch (MalformedURLException e) {
+			e.printStackTrace();
+		} catch (IOException e) {
+			e.printStackTrace();
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+
+	/**
+	 * 将新闻信息显示到WebView上
+	 */
+	private void setNewsWebView() {
+		String htmlContent = "";
+		try {
+			InputStream in = getAssets().open("context.html");
+			byte[] tmp = HttpUtil.readInputStream(in);
+			htmlContent = new String(tmp);
+			checkParams(); // 最后校验属性，防止异常标签引发的异常
+			AppUtil.setWebViewLayout(contentWebView, content); // 如果具体内容包含表格，则改变webview的布局逻辑
+			contentWebView.loadDataWithBaseURL(
+					"http://news.sciencenet.cn",
+					htmlContent.replace("@title", title)
+							.replace("@copyright", copyright)
+							.replace("@source", sourse)
+							.replace("@pubdate", pubDate)
+							.replace("@content", content), mimeType, encoding,
+					null);
+		} catch (Exception e) {
+			handler.sendEmptyMessage(2); // 出现异常
+			e.printStackTrace();
+		}
+	}
+
+	/**
+	 * 获取博客的具体内容，此方法在子线程中被调用
+	 */
+	private void getBlogDetails(String blogId) {
+		if (!NetWorkState.isNetworkAvailable(this)) { // 判断网络连接情况
+			handler.sendEmptyMessage(0);
+			return;
+		}
+		try {
+			String pass = EncryptBySHA1.Encrypt(DateUtil.getCurrentDate());
+			URL url = new URL(
+					DataUrlKeys.BLOG_DETAIL_URL.replace("$id", blogId) + pass);
+			Log.i("BlogContentUrl",
+					DataUrlKeys.BLOG_DETAIL_URL.replace("$id", blogId) + pass);
+			URLConnection con = url.openConnection();
+			con.connect();
+			InputStream input = con.getInputStream();
+			Bundle bundle = xmlHandler_blog.getBlogDetails(input);
+
+			title = bundle.getString("blog_title");
+			content = bundle.getString("blog_content");
+			comment = bundle.getString("blog_noreply");
+			pubDate = bundle.getString("blog_dateline");
+
+		} catch (MalformedURLException e) {
+			e.printStackTrace();
+		} catch (IOException e) {
+			e.printStackTrace();
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+
+	/**
+	 * 将博客信息显示到WebView上
+	 */
+	private void setBlogWebView() {
+		String htmlContent = "";
+		try {
+			InputStream in = getAssets().open("context_blog.html");
+			byte[] tmp = HttpUtil.readInputStream(in);
+			htmlContent = new String(tmp);
+			checkParams(); // 最后校验属性，防止异常标签引发的异常
+			AppUtil.setWebViewLayout(contentWebView, content); // 如果具体内容包含表格，则改变webview的布局逻辑
+			contentWebView.loadDataWithBaseURL(
+					"http://news.sciencenet.cn",
+					htmlContent.replace("@title", title)
+							.replace("@copyright", blogCopyright)
+							.replace("@dateLine", pubDate)
+							.replace("@content", content), mimeType, encoding,
+					null);
+		} catch (Exception e) {
+			handler.sendEmptyMessage(2); // 出现异常
+			e.printStackTrace();
+		}
+	}
+
+	/**
+	 * 获取群组的具体内容，此方法在子线程中被调用
+	 */
+	private void getGroupDetails(String groupId) {
+		if (!NetWorkState.isNetworkAvailable(this)) { // 判断网络连接情况
+			handler.sendEmptyMessage(0);
+			return;
+		}
+		try {
+			String pass = EncryptBySHA1.Encrypt(DateUtil.getCurrentDate());
+			URL url = new URL(DataUrlKeys.GROUP_DETAIL_URL.replace("$id",
+					groupId) + pass);
+			URLConnection con = url.openConnection();
+			con.connect();
+			InputStream input = con.getInputStream();
+			Bundle bundle = xmlHandler_group.getGroupDetails(input);
+
+			title = bundle.getString("group_title");
+			content = bundle.getString("group_description");
+			copyright = bundle.getString("group_copyright");
+			pubDate = bundle.getString("group_pubdate");
+		} catch (MalformedURLException e) {
+			e.printStackTrace();
+		} catch (IOException e) {
+			e.printStackTrace();
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+
+	/**
+	 * 将群组信息显示到WebView上
+	 */
+	private void setGroupWebView() {
+		String htmlContent = "";
+		try {
+			InputStream in = getAssets().open("context_blog.html"); // 群组的和博客的具体内容版面是一样的，可以直接用blog的
+			byte[] tmp = HttpUtil.readInputStream(in);
+			htmlContent = new String(tmp);
+			checkParams(); // 最后校验属性，防止异常标签引发的异常
+			AppUtil.setWebViewLayout(contentWebView, content); // 如果具体内容包含表格，则改变webview的布局逻辑
+			contentWebView.loadDataWithBaseURL(
+					"http://news.sciencenet.cn",
+					htmlContent.replace("@title", title)
+							.replace("@copyright", copyright)
+							.replace("@dateLine", pubDate)
+							.replace("@content", content), mimeType, encoding,
+					null);
+		} catch (Exception e) {
+			handler.sendEmptyMessage(2); // 出现异常
+			e.printStackTrace();
+		}
+	}
+
+	/**
+	 * 获取报刊新闻的具体内容
+	 */
+	private void getNewspaperDetails(String newspaper_Id) {
+		if (!NetWorkState.isNetworkAvailable(this)) { // 判断网络连接情况
+			handler.sendEmptyMessage(0);
+			return;
+		}
+		try {
+			String pass = EncryptBySHA1.Encrypt(DateUtil.getCurrentDate());
+			String tmpUrl = DataUrlKeys.NEWPAPER_CONTENT_URL.replace("$pass",
+					pass);
+			URL url = new URL(tmpUrl.replace("$id", newspaper_Id));
+			Log.i("NewsContentUrl", tmpUrl.replace("$id", newspaper_Id));
+			URLConnection con = url.openConnection();
+			con.connect();
+			InputStream input = con.getInputStream();
+			Bundle bundle = xmlHandler.getNewspaperContent(input);
+
+			title = bundle.getString("newspaper_content_title");
+			copyright = bundle.getString("newspaper_content_copyright");
+			pubDate = bundle.getString("newspaper_content_pubDate");
+			content = bundle.getString("newspaper_content_description");
+			sourse = bundle.getString("newspaper_content_sourse");
+			comment = bundle.getString("newspaper_content_comments");
+
+		} catch (MalformedURLException e) {
+			e.printStackTrace();
+		} catch (IOException e) {
+			e.printStackTrace();
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+
+	/**
+	 * 将报刊信息显示到WebView上
+	 */
+	private void setNewspaperWebView() {
+		String htmlContent = "";
+		try {
+			InputStream in = getAssets().open("context.html");
+			byte[] tmp = HttpUtil.readInputStream(in);
+			htmlContent = new String(tmp);
+			checkParams(); // 防止异常标签引发的异常
+			AppUtil.setWebViewLayout(contentWebView, content); // 如果具体内容包含表格，则改变webview的布局逻辑
+			contentWebView.loadDataWithBaseURL(
+					"http://news.sciencenet.cn",
+					htmlContent.replace("@title", title)
+							.replace("@copyright", copyright)
+							.replace("@source", sourse)
+							.replace("@pubdate", pubDate)
+							.replace("@content", content), mimeType, encoding,
+					null);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+
+	/**
+	 * 做最后的校验，校验要被显示到UI上的某篇新闻具体内容的各属性是否为空
+	 */
+	private void checkParams() {
+		this.title = (title == null || title.equals("")) ? "未知" : title;
+		this.copyright = (copyright == null || copyright.equals("")) ? "未知"
+				: copyright;
+		this.sourse = (sourse == null || sourse.equals("")) ? "未知" : sourse;
+		this.pubDate = (pubDate == null || pubDate.equals("")) ? "未知" : pubDate;
+		this.content = (content == null || content.equals("")) ? "未知" : content;
+	}
+
+	/**
+	 * UI线程的handler
+	 */
+	private Handler handler = new Handler() {
+		@Override
+		public void handleMessage(android.os.Message msg) {
+			if (msg.what == 1) {
+				viewSwitcher.setDisplayedChild(0); // 显示设置好的webview
+			} else if (msg.what == -1) {
+				viewSwitcher.setDisplayedChild(1); // 显示转圈的进度条
+			} else if (msg.what == 0) {
+				Toast.makeText(CollectionDetailActivity.this,
+						"网络连接不可用，请检查你的网络连接", Toast.LENGTH_LONG).show();
+			} else if (msg.what == 2) {
+				Toast.makeText(CollectionDetailActivity.this, "抱歉，出现未知异常",
+						Toast.LENGTH_LONG).show();
+			}
+		}
+	};
+
+	/**
+	 * 菜单
+	 */
+	@Override
+	public boolean onCreateOptionsMenu(Menu menu) {
+		MenuInflater inflater = getMenuInflater();
+		inflater.inflate(R.menu.news_detail_menu, menu);
+		return super.onCreateOptionsMenu(menu);
+	}
+
+	@Override
+	public boolean onOptionsItemSelected(MenuItem mi) {
+		switch (mi.getItemId()) {
+		case R.id.menu_news_pinglun:
+			if (type == CollectionItem.TYPE_NEWS) {
+				redirectNewsCommentActivity();
+			} else if (type == CollectionItem.TYPE_BLOG) {
+				redirectBlogCommentActivity();
+			} else if (type == CollectionItem.TYPE_GROUP) {
+				redirectGroupCommentActivity();
+			} else if (type == CollectionItem.TYPE_NEWSPAPER) {
+				redirectNewspaperCommentActivity();
+			}
+			break;
+		case R.id.menu_news_zihao:
+			if (contentWebView != null) {
+				changeFont();
+			}
+			break;
+		case R.id.menu_news_fenxiang:
+			shareContent("《"
+					+ title
+					+ "》,链接:http://http://www.sciencenet.cn/，分享自：科学网Android客户端。");
+			break;
+		case R.id.menu_news_shoucang:
+			if (TabCollectionActivity.hasBeenDeleted == false) {
+				TabCollectionActivity.hasBeenDeleted = true;
+				Toast.makeText(CollectionDetailActivity.this, "已取消收藏",
+						Toast.LENGTH_SHORT).show();
+			} else {
+				TabCollectionActivity.hasBeenDeleted = false;
+				Toast.makeText(CollectionDetailActivity.this, "已添加到收藏",
+						Toast.LENGTH_SHORT).show();
+			}
+			break;
+		}
+		return super.onOptionsItemSelected(mi);
+	}
+
+	/**
+	 * 重定向到新闻评论的Activity
+	 */
+	private void redirectNewsCommentActivity() {
+		Intent intent = new Intent();
+		try {
+			intent.setClass(CollectionDetailActivity.this,
+					ShowCommentActivity.class);
+			Bundle bundle = new Bundle();
+			String tagString = "news_comment";
+
+			bundle.putString("can_reply", comment);
+			bundle.putString("tag", tagString);
+			bundle.putString("id", currentId);
+
+			intent.putExtras(bundle);
+			startActivityForResult(intent, 0);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+
+	/**
+	 * 重定向到显示博客评论activity
+	 * 
+	 */
+	private void redirectBlogCommentActivity() {
+		Intent intent = new Intent();
+		try {
+			intent.setClass(CollectionDetailActivity.this,
+					BlogCommentActivity.class);
+			Bundle bundle = new Bundle();
+			String tagString = "blog_comment";
+
+			bundle.putString("can_comment", comment);
+			bundle.putString("tag", tagString);
+			bundle.putString("id", currentId);
+
+			intent.putExtras(bundle);
+			startActivityForResult(intent, 0);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+
+	/**
+	 * 重定向到群组评论activity
+	 */
+	private void redirectGroupCommentActivity() {
+		Intent intent = new Intent();
+		try {
+			intent.setClass(CollectionDetailActivity.this,
+					BlogCommentActivity.class);
+			Bundle bundle = new Bundle();
+			String tagString = "group_comment";
+
+			bundle.putString("can_comment", "-1");
+			bundle.putString("tag", tagString);
+			bundle.putString("id", currentId);
+
+			intent.putExtras(bundle);
+			startActivityForResult(intent, 0);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+
+	/**
+	 * 重定向到报刊评论
+	 */
+	private void redirectNewspaperCommentActivity() {
+		Intent intent = new Intent();
+		try {
+			intent.setClass(CollectionDetailActivity.this,
+					ShowCommentActivity.class);
+			Bundle bundle = new Bundle();
+			String tagString = "newspaper_comment";
+
+			bundle.putString("can_reply", npContentCanComment);
+			bundle.putString("tag", tagString);
+			bundle.putString("id", currentId);
+
+			intent.putExtras(bundle);
+
+			startActivityForResult(intent, 0);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+
+	/**
+	 * 修改WebView的字体
+	 */
+	private void changeFont() {
+		int toSetFlag = (++DataUrlKeys.currentFontSizeFlag) % 3;
+		switch (toSetFlag) {
+		case 0:
+			contentWebView.getSettings().setTextSize(
+					WebSettings.TextSize.NORMAL);
+			break;
+		case 1:
+			contentWebView.getSettings().setTextSize(
+					WebSettings.TextSize.LARGER);
+			break;
+		case 2:
+			contentWebView.getSettings().setTextSize(
+					WebSettings.TextSize.LARGEST);
+			break;
+		default:
+			break;
+		}
+		DataUrlKeys.currentFontSizeFlag = toSetFlag;
+	}
+
+	/**
+	 * 打开分享界面
+	 * 
+	 * @param 要分享的内容
+	 */
+	private void shareContent(String shareContent) {
+		Intent intent = new Intent(Intent.ACTION_SEND);
+		intent.setType("text/plain");
+		intent.putExtra(Intent.EXTRA_SUBJECT, title);
+		intent.putExtra(Intent.EXTRA_TEXT, shareContent);
+		startActivity(Intent.createChooser(intent, title));
+	}
+}

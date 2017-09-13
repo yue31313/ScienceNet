@@ -1,0 +1,44 @@
+8
+
+dir
+0
+svn://www.oksvn.com/ScienceNetReader/ScienceNetReader/libs
+svn://www.oksvn.com/ScienceNetReader
+add
+
+
+
+
+
+
+
+svn:special svn:externals svn:needs-lock
+
+CWAC-AdapterWrapper.jar
+file
+
+
+
+add
+
+
+
+
+
+has-props
+has-prop-mods
+
+android-support-v4.jar
+file
+
+
+
+add
+
+
+
+
+
+has-props
+has-prop-mods
+

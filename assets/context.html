@@ -1,0 +1,91 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<title>无标题文档</title>
+<style type="text/css">
+<!--
+
+*{margin:0; padding:0;}
+body { font-size:12px;text-align:left;color:#343434; line-height:18px; font-family:"微软雅黑"}
+img{border:0;}
+a {text-decoration: none; color:#343434;  cursor:pointer;}
+a:hover {color: #1C41B0; text-decoration:underline}
+#container{ width:320px;}
+#container01{ width:640px;}
+#container02{ width:980px;}
+.bg{
+	padding:5px 10px;
+	background-image: url(images/listbg.gif);
+	background-repeat: repeat-x;
+	background-position: bottom;
+}
+.font01{ font-size:14px; font-weight:bold; margin:5px 0; }
+.font02{ color:#555555; line-height:18px; font-size:12px; height:38px; overflow:hidden;}
+.font03{ color:#9f9d9d; text-align:right; line-height:18px;font-size:12px }
+.font04{ font-size:18px;  font-weight:bold; }
+.font05{ color:#9f9d9d; text-align:center; line-height:18px;font-size:12px ;margin-top:10px;}
+    
+.wz1 {padding:5px 20px; text-indent:2em; line-height:20px; color:454545; font-size:12px;}
+.wz2 {padding:5px 20px; text-indent:2em; line-height:20px; color:454545; font-size:14px;}
+.wz3 {padding:5px 20px; text-indent:2em; line-height:20px; color:454545; font-size:16px;}
+.wz4 {padding:5px 20px; text-indent:2em; line-height:20px; color:454545; font-size:18px;}
+
+
+.button{ width:88px; height:23px; margin-right:30px; margin:0 auto; margin-bottom:10px;}
+.box{ margin:0 auto;width:164px; height:225px;}
+.box img{width:164px; height:225px; border:1px  solid #c2c0c0;margin:0 auto;}
+.red{ color:#F00; font-weight:bold;}
+.tit{ margin:5px 0 5px 78px; font-size:13px;}
+.iphone{ width:320px; height:480px;}
+.ipad{ width:640px; height:960px;}
+.ipad01{ width:960px; height:640px;}
+-->
+</style>
+
+</head>
+<body>
+<!--列表页-->
+<script type="text/javascript">
+    function DrawImage(ImgD){
+        //参数(图片,允许的宽度,允许的高度)
+        iwidth=240;
+        iheight=400
+        var image=new Image();
+        image.src=ImgD.src;
+        if(image.width>0 && image.height>0){
+            flag=true;
+            if(image.width/image.height<= iwidth/iheight){
+                if(image.height>iheight){  
+                    ImgD.height=iheight;
+                    ImgD.width=(image.width*iheight)/image.height;        
+                }else{
+                    ImgD.width=image.width;  
+                    ImgD.height=image.height;
+                }
+            }
+            else{
+                if(image.width>iwidth){  
+                    ImgD.width=iwidth;
+                    ImgD.height=(image.height*iwidth)/image.width;
+                }else{
+                    ImgD.width=image.width;  
+                    ImgD.height=image.height;
+                }
+            }
+        }
+    } 
+</script>
+<!--文章页-->
+<div  id="container" style="margin-top:20px;">
+  <div class="bg">
+    <div class="font04">@title</div>
+    <div class="font05">作者：@copyright &nbsp;&nbsp;&nbsp;@source  &nbsp;&nbsp;&nbsp;   @pubdate</div>
+  </div>
+  <div class="%@">
+      @content
+  </div>
+</div>
+<!--往期查询-->
+</body>
+</html>

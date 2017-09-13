@@ -1,0 +1,52 @@
+8
+
+dir
+50
+svn://www.oksvn.com/ScienceNetReader/ScienceNetReader/src/cn/sciencenet/dialog
+svn://www.oksvn.com/ScienceNetReader
+
+
+
+2012-06-17T03:25:51.937500Z
+47
+liushuaikobe
+
+
+svn:special svn:externals svn:needs-lock
+
+
+
+
+
+
+
+
+
+
+
+d912e39c-7206-3c4b-b31f-fc0a04399c74
+
+CommentDialog.java
+file
+
+
+
+
+2012-07-08T05:35:54.169078Z
+d8321d52b715b572bb06f970dc46915a
+2012-06-17T03:25:51.937500Z
+47
+liushuaikobe
+
+LoginDialog.java
+file
+
+
+
+
+2012-07-08T05:35:54.172078Z
+a25d643df761f39ea410179dfe949fa0
+2012-06-11T08:47:57.896500Z
+36
+liushuaikobe
+

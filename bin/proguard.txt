@@ -1,0 +1,66 @@
+# view AndroidManifest.xml #generated:83
+-keep class cn.sciencenet.activity.BlogCommentActivity { <init>(...); }
+
+# view AndroidManifest.xml #generated:63
+-keep class cn.sciencenet.activity.BlogDetailActivity { <init>(...); }
+
+# view AndroidManifest.xml #generated:87
+-keep class cn.sciencenet.activity.CollectionDetailActivity { <init>(...); }
+
+# view AndroidManifest.xml #generated:91
+-keep class cn.sciencenet.activity.ConfigurationActivity { <init>(...); }
+
+# view AndroidManifest.xml #generated:67
+-keep class cn.sciencenet.activity.GroupDetailActivity { <init>(...); }
+
+# view AndroidManifest.xml #generated:31
+-keep class cn.sciencenet.activity.MainTabActivity { <init>(...); }
+
+# view AndroidManifest.xml #generated:59
+-keep class cn.sciencenet.activity.NewsDetailActivity { <init>(...); }
+
+# view AndroidManifest.xml #generated:75
+-keep class cn.sciencenet.activity.NewspaperContentActivity { <init>(...); }
+
+# view AndroidManifest.xml #generated:71
+-keep class cn.sciencenet.activity.NewspaperDetailActivity { <init>(...); }
+
+# view AndroidManifest.xml #generated:51
+-keep class cn.sciencenet.activity.ScienceNetBlogActivity { <init>(...); }
+
+# view AndroidManifest.xml #generated:55
+-keep class cn.sciencenet.activity.ScienceNetGroupActivity { <init>(...); }
+
+# view AndroidManifest.xml #generated:47
+-keep class cn.sciencenet.activity.ScienceNetNewsActivity { <init>(...); }
+
+# view AndroidManifest.xml #generated:95
+-keep class cn.sciencenet.activity.SearchResultActivity { <init>(...); }
+
+# view AndroidManifest.xml #generated:103
+-keep class cn.sciencenet.activity.SearchResultBlogActivity { <init>(...); }
+
+# view AndroidManifest.xml #generated:107
+-keep class cn.sciencenet.activity.SearchResultGroupActivity { <init>(...); }
+
+# view AndroidManifest.xml #generated:99
+-keep class cn.sciencenet.activity.SearchResultNewsActivity { <init>(...); }
+
+# view AndroidManifest.xml #generated:79
+-keep class cn.sciencenet.activity.ShowCommentActivity { <init>(...); }
+
+# view AndroidManifest.xml #generated:21
+-keep class cn.sciencenet.activity.SplashScreen { <init>(...); }
+
+# view AndroidManifest.xml #generated:35
+-keep class cn.sciencenet.activity.TabCollectionActivity { <init>(...); }
+
+# view AndroidManifest.xml #generated:39
+-keep class cn.sciencenet.activity.TabScienceNetActivity { <init>(...); }
+
+# view AndroidManifest.xml #generated:43
+-keep class cn.sciencenet.activity.TabScienceNewspaperActivity { <init>(...); }
+
+# view res/layout/layout_newspaper.xml #generated:62
+-keep class cn.sciencenet.view.MyGallery { <init>(...); }
+

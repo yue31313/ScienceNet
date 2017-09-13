@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="fill_parent"
+    android:layout_height="fill_parent"
+    android:orientation="vertical" >
+
+    <TabHost
+        android:id="@android:id/tabhost"
+        android:layout_width="fill_parent"
+        android:layout_height="fill_parent" >
+
+        <LinearLayout
+            android:layout_width="fill_parent"
+            android:layout_height="fill_parent"
+            android:orientation="vertical" >
+
+            <FrameLayout
+                android:id="@android:id/tabcontent"
+                android:layout_width="fill_parent"
+                android:layout_height="0.0dip"
+                android:layout_weight="1.0" >
+            </FrameLayout>
+
+            <TabWidget
+                android:id="@android:id/tabs"
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content"
+                android:visibility="gone" />
+
+            <RelativeLayout
+                android:id="@+id/layout_bottom"
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content" >
+
+                <RadioGroup
+                    android:id="@+id/radiogroup"
+                    android:layout_width="fill_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="bottom"
+                    android:background="@drawable/bottom_bg"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal" >
+
+                    <!-- 透明的块，用来占位 -->
+                    <!--
+                         <RadioButton
+                        android:layout_width="wrap_content"
+                        android:background="@drawable/bottom_transparent"
+                        android:button="@null"
+                        android:layout_weight="1" />
+                    -->
+
+                    <RadioButton
+                        android:id="@+id/radio_sciencenet"
+                        android:layout_width="wrap_content"
+                        android:layout_weight="1"
+                        android:background="@drawable/tab_selector_sciencenet"
+                        android:button="@null"
+                        android:checked="true" />
+
+                    <RadioButton
+                        android:id="@+id/radio_sciencenewspaper"
+                        android:layout_width="wrap_content"
+                        android:layout_weight="1"
+                        android:background="@drawable/tab_selector_sciencenewspaper"
+                        android:button="@null" />
+
+                    <RadioButton
+                        android:id="@+id/radio_collection"
+                        android:layout_width="wrap_content"
+                        android:layout_weight="1"
+                        android:background="@drawable/tab_selector_collection"
+                        android:button="@null" />
+
+                    <!-- 透明的块，用来占位 -->
+                    <!--
+                         <RadioButton
+                        android:layout_width="wrap_content"
+                        android:background="@drawable/bottom_transparent"
+                        android:button="@null"
+                        android:layout_weight="1" />
+                    -->
+
+                </RadioGroup>
+            </RelativeLayout>
+        </LinearLayout>
+    </TabHost>
+
+</LinearLayout>

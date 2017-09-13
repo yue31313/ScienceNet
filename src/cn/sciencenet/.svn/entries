@@ -1,0 +1,46 @@
+8
+
+dir
+50
+svn://www.oksvn.com/ScienceNetReader/ScienceNetReader/src/cn/sciencenet
+svn://www.oksvn.com/ScienceNetReader
+
+
+
+2012-07-08T03:20:29.403500Z
+50
+zouliping007
+
+
+svn:special svn:externals svn:needs-lock
+
+
+
+
+
+
+
+
+
+
+
+d912e39c-7206-3c4b-b31f-fc0a04399c74
+
+dialog
+dir
+
+view
+dir
+
+activity
+dir
+
+util
+dir
+
+datastorage
+dir
+
+httpclient
+dir
+
